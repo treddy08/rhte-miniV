@@ -1,0 +1,19 @@
+---
+agnosticv_meta:
+  agnosticd_git_repo: https://github.com/redhat-cop/agnosticd
+
+  params_to_variables:
+    guid: guid
+    email: email
+    basesuffix: subdomain_base_suffix
+    ocprelease: osrelease
+    infra_workloads: infra_workloads
+    student_workloads: student_workloads
+    letsencrypt: install_lets_encrypt_certificates
+    letsencrypt_production: lets_encrypt_production
+    nodecount: worker_instance_count
+    num_users: num_users
+    cloudtags: cloud_tags
+    ipapass: ipa_host_password
+    user: student_name
+    course: course_name

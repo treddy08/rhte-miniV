@@ -1,0 +1,234 @@
+:toc2:
+
+= AgnosticV, vars for link:https://github.com/redhat-cop/agnosticd[AgnosticD]
+
+
+This repo contains the variables needed for catalog items present in RHPDS and labs.opentlc.com.
+
+
+== Goals
+
+* Separate code and data
+* Deploy the same way we develop, using a yaml file.
+** Easy onboarding of lab and demo creators
+* Contain catalog information (description, ...)
+** Automatically generate catalog
+* Lab creators and Administrator will easily contribute to agnosticV
+* Easy maintenance (YAML files in a git repo)
+* Introduce good processes for contributing
+** Pull request
+** Peer review
+** Automatic tests
+*** Syntax checking, Linters
+*** Enforce policies (ex: "catalog item must have a description")
+*** Detect non-documented variables
+* Risk mitigation: no more manual operations on the deployment servers
+
+== Structure
+
+----
+common.yaml
+
+ACCOUNT/
+    common.yaml
+
+   CATALOGITEM1/
+         common.yaml
+         dev.yaml
+         test.yaml
+         prod.yaml
+
+   
+   CATALOGITEM2/
+         common.yaml
+         dev.yaml
+         test.yaml
+         prod.yaml
+----
+
+When deploying, you provide 3 things to the deployer (scripts or tower).
+
+. _ACCOUNT_        (for example `gpte`, `openshift`, `sandboxes-gpte`, ...)
+. _CATALOGITEM_    (for example `OCP_CLIENTVM`)
+. _STAGE_          (`dev|test|prod`)
+
+
+The variable of the yaml files are then merged in this order:
+
+* `common.yaml`
+* `ACCOUNT/common.yaml`
+* `ACCOUNT/CATALOGITEM/common.yaml`
+* `ACCOUNT/CATALOGITEM/STAGE*.yaml`   (_STAGE_ = `dev|test|prod`)
+
+=== Merging strategy (not meta vars)
+
+If a variable is defined in several YAML files, the definition in the last file has precedence over the others.
+
+When a variable is present in more than one file:
+
+* if it's a string, last definition will override previous
+* if it's a list, last definition will override previous
+* if it's a dictionary , all dictionaries will be *merged*
+
+Regarding merging strategies for meta variables, see next section.
+
+== Meta variables
+
+Variables are merged and then passed directly to `ansible-playbook` command.
+
+If you want to change things happening *before* that, for example "specify what secrets to use", you have to configure your catalog item (or account) using variables from the `agnosticv_meta` dictionary.
+
+|=============================================
+| Variable name | type | default | Purpose | Merging strategy
+
+| `sandboxed`
+| Boolean
+| `false`
+| Set to true to deploy in a sandbox (AWS only).
+| Overwrite
+
+| `nuke_sandbox`
+| Boolean
+| `true`
+| Set to true to run link:https://github.com/rebuy-de/aws-nuke[aws-nuke] on the sandbox when the service retires (AWS only).
+
+If set to `true`, the deletions of sandboxes are throttled to be gentle with AWS.
+
+If set to `false`, the deletions of sandboxes can be run in parallel.
+| Overwrite
+
+| `params_to_variables`
+| Dictionary
+| see `link:common.yaml[]`
+| This is the dictionary used to map BASH argument names passed by Cloudforms into ansible variable.
+| Merge
+
+| `secrets`
+| List
+| `[]`
+| This list defines the secret files to load. `~/secrets/{{name}}.yml` in Admin host) or credentials (tower).
+| Append
+
+| `idle_after`
+| Number
+| `8`
+| Number of hours after start/deploy to stop the environment.
+| Overwrite
+
+| `idle_after_deploy`
+| Number
+| `8`
+| Number of hours after deploy to stop the environment.
+| Overwrite
+
+| `idle_after_start`
+| Number
+| `8`
+| Number of hours after start to stop the environment.
+| Overwrite
+
+| `agnosticd_git_repo`
+| String
+| `'https://github.com/redhat-cop/agnosticd'`
+| Repo URL for agnosticd
+| Overwrite
+
+| `agnosticd_git_tag_prefix`
+| String
+| `''`
+| git tag prefix to check out. The tags are sorted using Version sort and the latest tag is picked.
+| Overwrite
+
+| `agnosticd_git_ref`
+| String
+| `development` if `stage=dev`
+| git ref (branch, commit id, tag, ...) to checkout
+| Overwrite
+|=============================================
+
+.example
+[source,yaml]
+----
+agnosticv_meta:
+  secrets:
+    - gpte
+    - ocp4_special_token
+  
+  params_to_variables:
+    user: student_name
+----
+
+
+== Migrate a catalog item to agnosticv
+
+== Checklist
+
+. Ensure a jenkins pipeline is present for the catalog item
+.. If not, ideally create the pipeline. See link:https://github.com/redhat-gpe/OPEN_Admin/blob/master/OPENTLC-Documentation/OPENTLC-Deployer_development_workflow/jenkins.adoc[jenkins.adoc] in OPEN_Admin.
+. Run jenkins pipeline: should work.
+. Translate variables present in the deployment script (`OPEN_Admin/OPEN-Deployer/deploy_scripts/`) into YAML link:https://github.com/redhat-gpe/agnosticv[`agnosticv`]
+. Go into CloudForms and change the remote script
+.. automation / automate / explorer / OPEN-Ansible-Deployer / State Machines / ... / remoteScript
++
+----
+/home/opentlc-mgr/OPEN_Admin/OPENTLC-Deployer/deploy_scripts/${#className}.sh
+to
+/home/opentlc-mgr/OPEN_Admin/OPENTLC-Deployer/deploy_scripts/ALL_agnosticv.sh
+----
+. Order service
+.. test stop action from Clouforms
+.. test start action from Clouforms
+.. test status action from Clouforms
+. Run jenkins pipeline: should work.
+. Add comment in the old script to point to the new script and to agnosticv definition files.
++
+.Warning example
+----
+########################################################################
+#
+#
+#           /!\ THIS FILE IS NOT USED ANYMORE /!\
+#
+#
+#   The DEV CLIENT VM catalog item vars are now defined here:
+# https://github.com/redhat-gpe/agnosticv/blob/master/common.yaml
+# https://github.com/redhat-gpe/agnosticv/blob/master/gpte/common.yaml
+# https://github.com/redhat-gpe/agnosticv/blob/master/gpte/OCP_CLIENTVM/dev.yaml
+#
+#
+#   The deployment script used now is ALL_agnosticv.sh
+#
+#
+########################################################################
+----
+
+. After a month, grep the logs to ensure the old script was not called.
+** If it was, it means there is another catalog item that is using the script. Investigate.
+** If not, delete the old script. 
+
+----
+########################################################################
+# RHTE: for shared clusters, use account: RHTE
+# RHTE: for cluster per studnet, use sandboxes-GPTE
+# RHTE: Secrets: ssh to bastion to find rhte-ocp4
+########################################################################
+----
+
+==  Running AgnosticD and AgnosticV via CLI
+
+* First, use `merge.sh` to get a YAML file of your config.  Indicate ACCOUNT CONFIG ENV
++
+.Example `merge.sh`
+----
+cd agnosticv
+./merge.sh sandboxes-gpte RHTE_A0007 dev > $HOME/config.yaml
+----
+
+* Then run your agnosticD deployer
++
+.Example `ansible-playbook` agnosticD
+----
+#!/bin/bash
+ansible-playbook ./ansible/main.yml -e @./config.yaml -e @./secret.yaml -e guid=<a GUID>
+----
+
